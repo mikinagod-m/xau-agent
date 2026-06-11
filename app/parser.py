@@ -102,7 +102,7 @@ def parse_alert(raw: str) -> ParsedAlert:
         )
 
     # --- entry: "XAU-U9 ▲ LONG (A SWEEP)" --------------------------------------
-    m = re.search(r"XAU-U\d+\s+[\u25b2\u25bc]?\s*(LONG|SHORT)\s*\(\s*(A\+|A|B|C)\s+([^)]+)\)", text)
+    m = re.search(r"XAU-U\d+\s+(?:[^\s(]*\s+)?(LONG|SHORT)\s*\(\s*(A\+|A|B|C)\s+([^)]+)\)", text)
     if m:
         return ParsedAlert(
             kind="entry", raw=raw, side=m.group(1), grade=m.group(2),
