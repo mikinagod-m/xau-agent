@@ -108,3 +108,17 @@ async def live_stats() -> list[dict]:
             """
         )
         return [dict(r) for r in rows]
+
+async def all_trades(limit: int = 200) -> list[dict]:
+    if not _pool:
+        return []
+    async with _pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT life_id, side, grade, setup, regime, entry, sl, tp, rr,
+                   opened_at, outcome, closed_at, claude_read
+            FROM trades ORDER BY opened_at DESC LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(r) for r in rows]

@@ -8,6 +8,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
 from . import db, stats
 from .analyst import analyze_entry
@@ -93,3 +94,27 @@ async def _handle(alert) -> None:
             await send_telegram(f"⚠️ Agent error handling alert: {exc}")
         except Exception:
             pass
+
+@app.get("/trades", response_class=HTMLResponse)
+async def trades(secret: str = ""):
+    if secret != settings.WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="bad secret")
+    rows = await db.all_trades()
+    cells = "".join(
+        f"<tr><td>{r['opened_at']:%a %d %b %H:%M}</td><td>{r['side']}</td>"
+        f"<td>{r['grade']}</td><td>{r['setup']}</td><td>{r['regime'] or '-'}</td>"
+        f"<td>{r['entry']}</td><td>{r['sl']}</td><td>{r['tp']}</td><td>{r['rr']}</td>"
+        f"<td>{r['outcome'] or 'OPEN'}</td>"
+        f"<td>{(r['claude_read'] or '').splitlines()[0][:90] if r['claude_read'] else ''}</td></tr>"
+        for r in rows
+    )
+    return f"""<html><head><title>XAU Agent Journal</title><style>
+    body{{font-family:monospace;background:#111;color:#ddd;padding:16px}}
+    table{{border-collapse:collapse;width:100%}}
+    td,th{{border:1px solid #333;padding:4px 8px;font-size:12px}}
+    th{{background:#1b1b1b;text-align:left}}tr:nth-child(even){{background:#161616}}
+    </style></head><body>
+    <h2>XAU Agent — Trade Journal ({len(rows)} rows)</h2>
+    <table><tr><th>Opened (UTC)</th><th>Dir</th><th>Grade</th><th>Setup</th><th>Regime</th>
+    <th>Entry</th><th>SL</th><th>TP</th><th>RR</th><th>Result</th><th>Claude verdict</th></tr>
+    {cells}</table></body></html>"""
