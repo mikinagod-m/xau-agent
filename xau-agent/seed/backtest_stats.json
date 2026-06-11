@@ -1,0 +1,108 @@
+{
+  "source": "TradingView Strategy Tester, OANDA XAUUSD, 3m CHART (live timeframe), 2026-05-11 to 2026-06-11 (~1 month, TradingView bar limit), all grades, commission=0, no spread modelled",
+  "overall": {
+    "trades": 69,
+    "win_rate_pct": 33.3,
+    "profit_factor": 0.85,
+    "net_pnl_usd": -1.46
+  },
+  "by_regime_direction": {
+    "CHOP|LONG": {
+      "trades": 18,
+      "win_rate_pct": 38.9,
+      "net_pnl_usd": 0.23,
+      "avg_pnl_usd": 0.013
+    },
+    "CHOP|SHORT": {
+      "trades": 19,
+      "win_rate_pct": 31.6,
+      "net_pnl_usd": -0.75,
+      "avg_pnl_usd": -0.039
+    },
+    "EXPANSION|LONG": {
+      "trades": 4,
+      "win_rate_pct": 0.0,
+      "net_pnl_usd": -0.95,
+      "avg_pnl_usd": -0.238
+    },
+    "EXPANSION|SHORT": {
+      "trades": 7,
+      "win_rate_pct": 57.1,
+      "net_pnl_usd": 1.17,
+      "avg_pnl_usd": 0.167
+    },
+    "TREND|LONG": {
+      "trades": 6,
+      "win_rate_pct": 16.7,
+      "net_pnl_usd": -0.69,
+      "avg_pnl_usd": -0.115
+    },
+    "TREND|SHORT": {
+      "trades": 15,
+      "win_rate_pct": 33.3,
+      "net_pnl_usd": -0.47,
+      "avg_pnl_usd": -0.031
+    }
+  },
+  "by_grade": {
+    "A": {
+      "trades": 63,
+      "win_rate_pct": 31.7,
+      "net_pnl_usd": -1.96,
+      "avg_pnl_usd": -0.031
+    },
+    "A+": {
+      "trades": 6,
+      "win_rate_pct": 50.0,
+      "net_pnl_usd": 0.5,
+      "avg_pnl_usd": 0.083
+    }
+  },
+  "notes": [
+    "PRIMARY DATA: 3m chart, the live trading timeframe, but only ~1 month / 69 trades. All bucket samples are SMALL - treat as weak priors, lean on the live journal as it grows.",
+    "3m engine was net NEGATIVE last month before costs (PF 0.85, 33.3% WR). Be strict: default toward SKIP unless multiple context factors align.",
+    "Grade matters: A+ went 50% WR net positive (6 trades); plain A went 31.7% WR net negative (63 trades). Treat plain-A signals with extra skepticism.",
+    "Average winner only $0.37 at this position sizing - spread/slippage on 3m XAUUSD materially erodes the edge. Factor RiskPts vs typical ~0.2-0.4pt spread.",
+    "3m and 1H pictures DIVERGE: on 1H (158 trades, 2.5yr) longs dominated and TREND SHORT was the leak; on 3m last month TREND LONG was the worst bucket and EXPANSION SHORT the best. Do not assume the 1H tendencies apply to 3m signals."
+  ],
+  "reference_1h_2024_2026": {
+    "overall": {
+      "trades": 158,
+      "win_rate_pct": 45.6,
+      "profit_factor": 1.11
+    },
+    "by_regime_direction": {
+      "CHOP|LONG": {
+        "trades": 42,
+        "win_rate_pct": 52.4,
+        "net_pnl_usd": 8.41
+      },
+      "CHOP|SHORT": {
+        "trades": 15,
+        "win_rate_pct": 40.0,
+        "net_pnl_usd": -0.96
+      },
+      "EXPANSION|LONG": {
+        "trades": 6,
+        "win_rate_pct": 16.7,
+        "net_pnl_usd": -3.56
+      },
+      "EXPANSION|SHORT": {
+        "trades": 3,
+        "win_rate_pct": 33.3,
+        "net_pnl_usd": 0.93
+      },
+      "TREND|LONG": {
+        "trades": 55,
+        "win_rate_pct": 50.9,
+        "net_pnl_usd": 10.86
+      },
+      "TREND|SHORT": {
+        "trades": 37,
+        "win_rate_pct": 37.8,
+        "net_pnl_usd": -7.41
+      }
+    },
+    "note": "Long-run 1H behaviour for broad context only; live trading is 3m."
+  }
+}
