@@ -60,10 +60,12 @@
   },
   "notes": [
     "PRIMARY DATA: 3m chart, the live trading timeframe, but only ~1 month / 69 trades. All bucket samples are SMALL - treat as weak priors, lean on the live journal as it grows.",
-    "3m engine was net NEGATIVE last month before costs (PF 0.85, 33.3% WR). Be strict: default toward SKIP unless multiple context factors align.",
+    "3m engine was net NEGATIVE last month before costs (PF 0.85, 33.3% WR). Be strict, but calibrate against the LIVE JOURNAL block and your own verdict track record rather than defaulting to SKIP.",
     "Grade matters: A+ went 50% WR net positive (6 trades); plain A went 31.7% WR net negative (63 trades). Treat plain-A signals with extra skepticism.",
     "Average winner only $0.37 at this position sizing - spread/slippage on 3m XAUUSD materially erodes the edge. Factor RiskPts vs typical ~0.2-0.4pt spread.",
-    "3m and 1H pictures DIVERGE: on 1H (158 trades, 2.5yr) longs dominated and TREND SHORT was the leak; on 3m last month TREND LONG was the worst bucket and EXPANSION SHORT the best. Do not assume the 1H tendencies apply to 3m signals."
+    "3m and 1H pictures DIVERGE: on 1H (158 trades, 2.5yr) longs dominated and TREND SHORT was the leak; on 3m last month TREND LONG was the worst bucket and EXPANSION SHORT the best. Do not assume the 1H tendencies apply to 3m signals.",
+    "LIVE FINDING (Jun 8-12 journal + chart review): losses cluster on COUNTER-bias trades in BOTH directions - longs against bear Bias/Flow (Jun 8-10 decline) and shorts against bull Bias/Flow (Jun 11-12 rally). When THIS SIGNAL HTF alignment is COUNTER, lean SKIP unless context is exceptional; ALIGNED signals deserve more benefit of the doubt.",
+    "LIVE FINDING: REVERSAL entries that pass the tight-SL risk gate went 0/5 live. The engine's highest-value reversals (A+ REV Q88-100%) are usually demoted to WATCH for 'SL WIDE' - wide stops are intrinsic to good reversal structure. Treat gate-passing REVERSAL entries with heavy skepticism until the live sample says otherwise."
   ],
   "reference_1h_2024_2026": {
     "overall": {
