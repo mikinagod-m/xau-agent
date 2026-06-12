@@ -5,13 +5,15 @@ Flow: TradingView alert() webhook -> parse -> journal -> (Claude) -> Telegram.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from . import db, stats
-from .analyst import analyze_entry
+from .analyst import analyze_entry, extract_verdict
 from .config import settings
 from .notify import send_telegram, spot_price_note
 from .parser import parse_alert
@@ -49,10 +51,10 @@ async def webhook(token: str, request: Request):
 async def _handle(alert) -> None:
     try:
         if alert.kind == "entry":
-            stats_ctx = await stats.stats_block(alert.regime, alert.side)
+            stats_ctx = await stats.stats_block(alert)
             spot = await spot_price_note()
             read = await analyze_entry(alert, stats_ctx, spot)
-            await db.open_trade(alert, claude_read=read)
+            await db.open_trade(alert, claude_read=read, verdict=extract_verdict(read))
 
             arrow = "🟢" if alert.side == "LONG" else "🔴"
             await send_telegram(
@@ -105,6 +107,7 @@ async def trades(secret: str = ""):
         f"<td>{r['grade']}</td><td>{r['setup']}</td><td>{r['regime'] or '-'}</td>"
         f"<td>{r['entry']}</td><td>{r['sl']}</td><td>{r['tp']}</td><td>{r['rr']}</td>"
         f"<td>{r['outcome'] or 'OPEN'}</td>"
+        f"<td>{r['verdict'] or '-'}</td>"
         f"<td>{(r['claude_read'] or '').splitlines()[0][:90] if r['claude_read'] else ''}</td></tr>"
         for r in rows
     )
@@ -113,8 +116,37 @@ async def trades(secret: str = ""):
     table{{border-collapse:collapse;width:100%}}
     td,th{{border:1px solid #333;padding:4px 8px;font-size:12px}}
     th{{background:#1b1b1b;text-align:left}}tr:nth-child(even){{background:#161616}}
+    a{{color:#7ab8ff}}
     </style></head><body>
-    <h2>XAU Agent — Trade Journal ({len(rows)} rows)</h2>
+    <h2>XAU Agent — Trade Journal ({len(rows)} rows)
+    <small><a href="/trades.csv?secret={secret}">download CSV</a></small></h2>
     <table><tr><th>Opened (UTC)</th><th>Dir</th><th>Grade</th><th>Setup</th><th>Regime</th>
-    <th>Entry</th><th>SL</th><th>TP</th><th>RR</th><th>Result</th><th>Claude verdict</th></tr>
+    <th>Entry</th><th>SL</th><th>TP</th><th>RR</th><th>Result</th><th>Verdict</th><th>Claude read</th></tr>
     {cells}</table></body></html>"""
+
+
+@app.get("/trades.csv")
+async def trades_csv(secret: str = ""):
+    """Full journal export, verdict included, for offline analysis."""
+    if secret != settings.WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="bad secret")
+    rows = await db.all_trades(limit=5000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["life_id", "side", "grade", "setup", "regime", "entry", "sl", "tp",
+                "rr", "opened_at", "outcome", "closed_at", "verdict", "claude_read"])
+    for r in rows:
+        w.writerow([
+            r["life_id"], r["side"], r["grade"], r["setup"], r["regime"],
+            r["entry"], r["sl"], r["tp"], r["rr"],
+            r["opened_at"].isoformat() if r["opened_at"] else "",
+            r["outcome"] or "OPEN",
+            r["closed_at"].isoformat() if r["closed_at"] else "",
+            r["verdict"] or "",
+            r["claude_read"] or "",
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="trades.csv"'},
+    )
