@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import asyncpg
 
@@ -172,6 +173,66 @@ async def live_summary() -> dict:
         add("verdict", row["verdict"], r, win)
         add("alignment", alignment.classify(row["side"], ctx), r, win)
     return out
+
+
+_VERDICT_RE = re.compile(r"VERDICT:\s*(TAKE|REDUCE|SKIP)", re.IGNORECASE)
+
+
+async def import_old_journal(old_url: str) -> dict:
+    """One-shot merge of the previous deployment's journal into this one.
+
+    Maps the old schema flexibly (direction->side, result->outcome,
+    created_at->opened_at), imports only closed trades with a life_id,
+    extracts verdicts from any stored Claude text, and skips duplicates
+    via ON CONFLICT DO NOTHING. Safe to run repeatedly.
+    """
+    if not _pool:
+        return {"error": "no db"}
+    old = await asyncpg.connect(old_url, timeout=20)
+    try:
+        rows = await old.fetch("SELECT * FROM trades")
+    finally:
+        await old.close()
+
+    inserted, skipped, dupes = 0, 0, 0
+    async with _pool.acquire() as con:
+        for raw in rows:
+            d = dict(raw)
+            life_id = d.get("life_id")
+            outcome = d.get("outcome") or d.get("result")
+            if not life_id or outcome not in ("TP HIT", "SL HIT"):
+                skipped += 1  # zombie OPEN rows, test payloads, no lifecycle key
+                continue
+            ctx = d.get("ctx")
+            if isinstance(ctx, (dict, list)):
+                ctx = json.dumps(ctx)
+            read = d.get("claude_read") or d.get("claude_verdict")
+            verdict = d.get("verdict")
+            if not verdict and read:
+                m = _VERDICT_RE.search(read)
+                verdict = m.group(1).upper() if m else None
+            result = await con.execute(
+                """
+                INSERT INTO trades (life_id, side, grade, setup, regime, entry, sl,
+                                    tp, rr, ctx, claude_read, verdict, outcome,
+                                    opened_at, closed_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                ON CONFLICT (life_id) DO NOTHING
+                """,
+                str(life_id),
+                d.get("side") or d.get("direction"),
+                d.get("grade"), d.get("setup"), d.get("regime") or None,
+                d.get("entry"), d.get("sl"), d.get("tp"), d.get("rr"),
+                ctx, read, verdict, outcome,
+                d.get("opened_at") or d.get("created_at"),
+                d.get("closed_at"),
+            )
+            if result.endswith("1"):
+                inserted += 1
+            else:
+                dupes += 1
+    return {"old_rows": len(rows), "inserted": inserted,
+            "skipped_open_or_no_life_id": skipped, "already_present": dupes}
 
 
 async def delete_test_rows(entry: float = 3345.6) -> str:

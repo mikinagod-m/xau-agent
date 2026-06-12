@@ -5,6 +5,7 @@ Flow: TradingView alert() webhook -> parse -> journal -> (Claude) -> Telegram.
 from __future__ import annotations
 
 import asyncio
+import os
 import csv
 import io
 from contextlib import asynccontextmanager
@@ -131,6 +132,20 @@ async def stats_page(secret: str = ""):
     if secret != settings.WEBHOOK_TOKEN:
         raise HTTPException(status_code=403, detail="bad secret")
     return await db.live_summary()
+
+
+@app.get("/admin/import-old")
+async def import_old(secret: str = ""):
+    """One-shot: merge the previous deployment's journal (set OLD_DATABASE_URL first)."""
+    if secret != settings.WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="bad secret")
+    old_url = os.environ.get("OLD_DATABASE_URL", "")
+    if not old_url:
+        return {"error": "Set the OLD_DATABASE_URL variable on this service first, then retry."}
+    try:
+        return await db.import_old_journal(old_url)
+    except Exception as exc:  # surface connection/schema problems readably
+        return {"error": str(exc)}
 
 
 @app.get("/admin/delete-test-rows")
