@@ -125,6 +125,22 @@ async def trades(secret: str = ""):
     {cells}</table></body></html>"""
 
 
+@app.get("/stats")
+async def stats_page(secret: str = ""):
+    """Live journal aggregates (incl. HTF alignment) as JSON — same data Claude sees."""
+    if secret != settings.WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="bad secret")
+    return await db.live_summary()
+
+
+@app.get("/admin/delete-test-rows")
+async def delete_test_rows(secret: str = ""):
+    """One-off: remove the bogus test rows at entry 3345.6. Idempotent."""
+    if secret != settings.WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="bad secret")
+    return {"result": await db.delete_test_rows()}
+
+
 @app.get("/trades.csv")
 async def trades_csv(secret: str = ""):
     """Full journal export, verdict included, for offline analysis."""

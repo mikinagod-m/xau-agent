@@ -174,6 +174,14 @@ async def live_summary() -> dict:
     return out
 
 
+async def delete_test_rows(entry: float = 3345.6) -> str:
+    """One-off cleanup of known bogus test payload rows (impossible price)."""
+    if not _pool:
+        return "no db"
+    async with _pool.acquire() as con:
+        return await con.execute("DELETE FROM trades WHERE entry = $1", entry)
+
+
 async def all_trades(limit: int = 200) -> list[dict]:
     if not _pool:
         return []
