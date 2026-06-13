@@ -54,6 +54,31 @@ Backtest Min Grade = A):
    never fires counter to its own Bias/Flow/Momentum context, so this
    filter is provably inert. **Currently set to Off — leave it Off** unless
    new live data (the `alignment` block in `/stats`) shows otherwise.
+3. **REVERSAL hard-block** (tested 13 Jun 2026, motivated by 0/6 live
+   REVERSAL losses) — Config B added a `Backtest: Hard-Block REVERSAL Setups`
+   flag and compared against Config A (wide-SL ON, REVERSALs allowed) over
+   the full chart history (~May 10–Jun 12 2026, Fixed R, all 4 regimes,
+   Min Grade A):
+
+   | | Config A (baseline) | Config B (hard-block) |
+   |---|---|---|
+   | Trades | 108 | 100 |
+   | Net profit | -$2.382 | -$2.611 |
+   | Profit Factor | 0.847 | 0.820 |
+   | Max Drawdown | $5.731 | $5.452 |
+
+   8 REVERSAL trades fired in the backtest window: gross profit $1.319,
+   gross loss $1.090, **net +$0.229, PF ≈ 1.21**. Hard-block loses $0.229
+   net and drops PF — fails the validation rule on both primary metrics.
+
+   Additional context: the wide-SL gate activated exactly **1 trade** in
+   the backtest (a winner, ≈+$0.63). All 6 live REVERSAL losses predate the
+   gate going live (Jun 12) and ran under the old tight-SL path — none have
+   yet closed under the new gate.
+
+   **Decision: keep wide-SL ON, no hard block.** Revisit when 4–6
+   post-gate REVERSAL trades have closed live. If that cohort is also
+   0/4–0/6, the block becomes justified at that point.
 
 ## Validation rule for any new Pine change
 Curve-fitting one month of data is the failure mode we're actively avoiding
