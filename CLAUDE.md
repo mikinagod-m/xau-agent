@@ -108,3 +108,32 @@ rejected). For any proposed change:
   on the connected chart) — not currently mirrored in this repo. If you pull
   it via `pine_get_source` to work on it, consider saving a copy here under
   `pine/XAU-U10.pine` so changes are diffable.
+
+## Open items / on the horizon
+
+### Shadow-tracking for filtered/blocked setup buckets
+**Priority: not urgent** — REVERSAL hasn't been hard-blocked yet. Design and
+implement this *before* any bucket gets permanently blocked, so visibility
+into it is never lost.
+
+**Problem:** Any bucket that gets hard-blocked (Pine-level gate or Claude
+auto-SKIP) stops generating new live data for that bucket. If the market
+regime later shifts and that setup becomes profitable again, there is no way
+to detect it — the data stream dried up when the block was applied.
+
+**Requirements:**
+- For any bucket that becomes hard-blocked, continue logging what the signal
+  *would have been* (entry, SL, TP, direction, grade, regime) into a
+  `shadow_trades` table or a flagged column in the existing journal, without
+  acting on it.
+- Track shadow trade outcomes the same way as live trades — via lifecycle
+  alerts matching on `life_id`, or simulated from price data (e.g.
+  metalpriceapi).
+- Add a `shadow_summary()` function alongside `live_summary()` that reports
+  realised-R for shadowed buckets, surfaced in `/stats`.
+- Define a re-evaluation cadence: every 20–30 new shadow trades, or
+  quarterly — whichever comes first. If a blocked bucket's shadow performance
+  has flipped positive, flag for un-blocking review.
+- Applies retroactively to REVERSAL if/when it gets hard-blocked per the
+  existing 4–6 post-gate trade revisit plan (see "Already tested and
+  decided" item 3).
