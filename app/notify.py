@@ -20,10 +20,11 @@ async def send_telegram(text: str, watch_channel: bool = False) -> None:
             print("[telegram error]", r.status_code, r.text[:200])
 
 
-async def spot_price_note() -> str:
-    """Fetch live XAU spot from metalpriceapi to flag stale alerts. Optional."""
+async def spot_price() -> float | None:
+    """Live XAU spot (USD/oz) from metalpriceapi, or None if unavailable.
+    Numeric counterpart to spot_price_note(), used by the shadow poller."""
     if not settings.METALPRICE_API_KEY:
-        return ""
+        return None
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
@@ -31,10 +32,14 @@ async def spot_price_note() -> str:
                 params={"api_key": settings.METALPRICE_API_KEY,
                         "base": "USD", "currencies": "XAU"},
             )
-            data = r.json()
-            xau = data.get("rates", {}).get("XAU")
-            if xau:
-                return f"Live spot (metalpriceapi): {1 / xau:.2f} USD/oz"
+            xau = r.json().get("rates", {}).get("XAU")
+            return round(1 / xau, 3) if xau else None
     except Exception as exc:
-        return f"(spot check failed: {exc})"
-    return ""
+        print("[spot_price] failed:", exc)
+        return None
+
+
+async def spot_price_note() -> str:
+    """Fetch live XAU spot from metalpriceapi to flag stale alerts. Optional."""
+    price = await spot_price()
+    return f"Live spot (metalpriceapi): {price:.2f} USD/oz" if price else ""

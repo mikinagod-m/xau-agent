@@ -48,5 +48,16 @@ class Settings:
     # WATCH alerts are forwarded raw with stats attached.
     ANALYZE_WATCH_ALERTS: bool = os.environ.get("ANALYZE_WATCH_ALERTS", "false").lower() == "true"
 
+    # Shadow-tracking: the Pine engine emits NO lifecycle for WATCH/blocked
+    # setups, so their outcomes must be simulated from spot price. When enabled
+    # (and METALPRICE_API_KEY is set) a background poller resolves open shadow
+    # trades against live spot so /stats can show what blocked setups would have
+    # done — the data needed to decide whether a filter is wrongly excluding edge.
+    SHADOW_TRACKING: bool = os.environ.get("SHADOW_TRACKING", "true").lower() != "false"
+    SHADOW_POLL_SECONDS: int = int(os.environ.get("SHADOW_POLL_SECONDS", "60") or 60)
+    # Give up (mark EXPIRED, exclude from R stats) if neither TP nor SL is hit
+    # within this many minutes. Default 8h covers an intraday 3m setup.
+    SHADOW_MAX_AGE_MIN: int = int(os.environ.get("SHADOW_MAX_AGE_MIN", "480") or 480)
+
 
 settings = Settings()

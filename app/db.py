@@ -36,6 +36,30 @@ CREATE TABLE IF NOT EXISTS trades (
     closed_at  TIMESTAMPTZ,
     claude_read TEXT
 );
+
+-- Shadow journal: WATCH/blocked setups the engine did NOT trade. Pine emits no
+-- lifecycle for these, so `outcome` is filled by the spot-price poller. `entry`
+-- is reconstructed from SL/TP/RR (the would-be plan). dedup_key collapses the
+-- same blocked setup re-firing each bar / webhook retries into one row.
+CREATE TABLE IF NOT EXISTS shadow_trades (
+    id          BIGSERIAL PRIMARY KEY,
+    dedup_key   TEXT UNIQUE,
+    side        TEXT NOT NULL,
+    grade       TEXT,
+    setup       TEXT,
+    regime      TEXT,
+    entry       DOUBLE PRECISION,
+    sl          DOUBLE PRECISION,
+    tp          DOUBLE PRECISION,
+    rr          DOUBLE PRECISION,
+    quality     INT,
+    reason      TEXT,
+    ctx         JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    outcome     TEXT,            -- TP HIT / SL HIT / EXPIRED (NULL = open)
+    resolved_price DOUBLE PRECISION,
+    closed_at   TIMESTAMPTZ
+);
 """
 
 
@@ -228,6 +252,117 @@ async def live_summary() -> dict:
                 b["net_r_after_cost"] = round(net_ac, 2)
                 b["expectancy_r_after_cost"] = round(net_ac / n, 3) if n else 0.0
                 b["profit_factor_after_cost"] = round(gw / gl_ac, 2) if gl_ac else None
+    return out
+
+
+async def insert_shadow(a: ParsedAlert, entry: float, dedup_key: str) -> bool:
+    """Journal a WATCH/blocked setup as an open shadow trade. Returns True if a
+    new row was inserted (False = duplicate of the same blocked setup)."""
+    if not _pool:
+        return False
+    async with _pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            INSERT INTO shadow_trades
+                (dedup_key, side, grade, setup, regime, entry, sl, tp, rr, quality, reason, ctx)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (dedup_key) DO NOTHING
+            RETURNING id
+            """,
+            dedup_key, a.side, a.grade, a.setup, a.regime,
+            entry, a.sl, a.tp, a.rr, a.watch_quality, a.watch_reason, json.dumps(a.ctx),
+        )
+        return row is not None
+
+
+async def open_shadows() -> list[dict]:
+    """Unresolved shadow trades (outcome IS NULL) for the poller to evaluate."""
+    if not _pool:
+        return []
+    async with _pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT id, side, entry, sl, tp, created_at
+            FROM shadow_trades WHERE outcome IS NULL
+            """
+        )
+        return [dict(r) for r in rows]
+
+
+async def resolve_shadow(shadow_id: int, outcome: str, price: float | None) -> None:
+    """Close a shadow trade with a simulated outcome (TP HIT / SL HIT / EXPIRED)."""
+    if not _pool:
+        return
+    async with _pool.acquire() as con:
+        await con.execute(
+            """
+            UPDATE shadow_trades
+            SET outcome = $2, resolved_price = $3, closed_at = now()
+            WHERE id = $1 AND outcome IS NULL
+            """,
+            shadow_id, outcome, price,
+        )
+
+
+async def shadow_summary() -> dict:
+    """Realised-R aggregates for resolved shadow trades (TP/SL HIT only;
+    EXPIRED excluded). Same shape/metrics as live_summary so blocked-bucket
+    performance is directly comparable to the live journal."""
+    if not _pool:
+        return {}
+    async with _pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT side, grade, setup, regime, ctx, entry, sl, tp, outcome
+            FROM shadow_trades
+            WHERE outcome IN ('TP HIT', 'SL HIT')
+              AND entry IS NOT NULL AND sl IS NOT NULL AND tp IS NOT NULL
+            """
+        )
+
+    out: dict[str, dict] = {}
+
+    def add(dim: str, key: str | None, r: float, win: int) -> None:
+        if not key:
+            return
+        b = out.setdefault(dim, {}).setdefault(
+            key, {"trades": 0, "wins": 0, "net_r": 0.0, "_gw": 0.0, "_gl": 0.0}
+        )
+        b["trades"] += 1
+        b["wins"] += win
+        b["net_r"] = round(b["net_r"] + r, 2)
+        if r >= 0:
+            b["_gw"] += r
+        else:
+            b["_gl"] += -r
+
+    for row in rows:
+        risk = abs(row["entry"] - row["sl"])
+        if not risk:
+            continue
+        win = 1 if row["outcome"] == "TP HIT" else 0
+        r = abs(row["tp"] - row["entry"]) / risk if win else -1.0
+        ctx = row["ctx"]
+        if isinstance(ctx, str):
+            try:
+                ctx = json.loads(ctx)
+            except ValueError:
+                ctx = None
+        add("overall", "ALL", r, win)
+        add("side", row["side"], r, win)
+        add("setup", row["setup"], r, win)
+        add("grade", row["grade"], r, win)
+        if row["regime"]:
+            add("bucket", f"{row['regime']} {row['side']}", r, win)
+        add("alignment", alignment.classify(row["side"], ctx), r, win)
+
+    for dim in out.values():
+        for b in dim.values():
+            n = b["trades"]
+            gw, gl = b.pop("_gw"), b.pop("_gl")
+            b["win_rate_pct"] = round(b["wins"] / n * 100, 1) if n else 0.0
+            b["profit_factor"] = round(gw / gl, 2) if gl else None
+            b["expectancy_r"] = round(b["net_r"] / n, 3) if n else 0.0
     return out
 
 

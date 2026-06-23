@@ -8,12 +8,13 @@ import os
 import csv
 import io
 import hmac
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
-from . import db, execution, stats
+from . import db, execution, shadow, stats
 from .analyst import analyze_entry, extract_verdict
 from .config import settings
 from .notify import send_telegram, spot_price_note
@@ -23,7 +24,16 @@ from .parser import parse_alert
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await db.init_db()
+    poller = None
+    if settings.SHADOW_TRACKING and settings.METALPRICE_API_KEY:
+        poller = asyncio.create_task(shadow.run_shadow_poller())
     yield
+    if poller:
+        poller.cancel()
+        try:
+            await poller
+        except asyncio.CancelledError:
+            pass
     await db.close_db()
 
 
@@ -137,6 +147,10 @@ async def _handle(alert) -> None:
                 f"SL {alert.sl} | TP {alert.tp} | {alert.rr}R | Regime {alert.regime}{hist}",
                 watch_channel=True,
             )
+            # Shadow-track the blocked setup so we can later measure whether the
+            # risk gate is excluding profitable trades (no Pine lifecycle exists).
+            if await shadow.record_watch(alert):
+                print(f"[handle] watch: shadow-tracked {alert.side} {alert.setup}")
 
         else:
             await send_telegram(f"❓ Unparsed alert:\n{alert.raw[:500]}", watch_channel=True)
@@ -183,6 +197,14 @@ async def stats_page(secret: str = ""):
     """Live journal aggregates (incl. HTF alignment) as JSON — same data Claude sees."""
     _require_admin(secret)
     return await db.live_summary()
+
+
+@app.get("/stats/shadow")
+async def shadow_stats_page(secret: str = ""):
+    """Realised-R for WATCH/blocked setups, simulated from spot price. Shows what
+    the risk gate filtered out, in the same shape as /stats for comparison."""
+    _require_admin(secret)
+    return await db.shadow_summary()
 
 
 @app.get("/admin/import-old")
