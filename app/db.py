@@ -72,35 +72,66 @@ async def log_raw(kind: str, body: str) -> None:
         )
 
 
-async def open_trade(a: ParsedAlert, claude_read: str | None = None, verdict: str | None = None) -> None:
+async def open_trade(a: ParsedAlert) -> bool:
+    """Atomically *claim* a signal by life_id. Returns True only when this call
+    inserted a new row; False when the life_id already existed (a webhook
+    replay/retry) or there is no DB. Callers MUST gate expensive/irreversible
+    side effects (Claude call, Telegram, future MT5 order) on a True return so
+    replays do not double-fire. The Claude read/verdict are attached later via
+    set_verdict() once the signal is confirmed new.
+    """
     if not _pool or not a.life_id:
+        return False
+    async with _pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            INSERT INTO trades (life_id, side, grade, setup, regime, entry, sl, tp, rr, ctx)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ON CONFLICT (life_id) DO NOTHING
+            RETURNING life_id
+            """,
+            a.life_id, a.side, a.grade, a.setup, a.regime,
+            a.entry, a.sl, a.tp, a.rr, json.dumps(a.ctx),
+        )
+        return row is not None
+
+
+async def set_verdict(life_id: str, claude_read: str | None, verdict: str | None) -> None:
+    """Attach Claude's read + extracted verdict to an already-claimed trade."""
+    if not _pool or not life_id:
         return
     async with _pool.acquire() as con:
         await con.execute(
-            """
-            INSERT INTO trades (life_id, side, grade, setup, regime, entry, sl, tp, rr, ctx, claude_read, verdict)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-            ON CONFLICT (life_id) DO NOTHING
-            """,
-            a.life_id, a.side, a.grade, a.setup, a.regime,
-            a.entry, a.sl, a.tp, a.rr, json.dumps(a.ctx), claude_read, verdict,
+            "UPDATE trades SET claude_read = $2, verdict = $3 WHERE life_id = $1",
+            life_id, claude_read, verdict,
         )
 
 
-async def close_trade(life_id: str, outcome: str) -> dict | None:
-    """Mark a trade closed; return the row so Telegram can summarise it."""
+async def close_trade(life_id: str, outcome: str) -> dict:
+    """Idempotently close a trade. Returns {"status": ..., "row": ...} where
+    status is one of:
+      - "closed"        : this call transitioned an open trade (notify the user)
+      - "already_closed": a replay/duplicate lifecycle alert (do nothing)
+      - "not_found"     : no journaled trade for this life_id (orphan — notify once)
+      - "no_db"         : journal disabled
+    Only an open trade (outcome IS NULL) is transitioned, so duplicate alerts
+    cannot re-notify or (later) re-flatten a position.
+    """
     if not _pool:
-        return None
+        return {"status": "no_db", "row": None}
     async with _pool.acquire() as con:
         row = await con.fetchrow(
             """
             UPDATE trades SET outcome = $2, closed_at = now()
-            WHERE life_id = $1
+            WHERE life_id = $1 AND outcome IS NULL
             RETURNING life_id, side, grade, setup, regime, entry, sl, tp, rr, opened_at
             """,
             life_id, outcome,
         )
-        return dict(row) if row else None
+        if row:
+            return {"status": "closed", "row": dict(row)}
+        exists = await con.fetchval("SELECT 1 FROM trades WHERE life_id = $1", life_id)
+        return {"status": "already_closed" if exists else "not_found", "row": None}
 
 
 async def live_stats() -> list[dict]:
@@ -241,6 +272,20 @@ async def delete_test_rows(entry: float = 3345.6) -> str:
         return "no db"
     async with _pool.acquire() as con:
         return await con.execute("DELETE FROM trades WHERE entry = $1", entry)
+
+
+async def raw_alerts_recent(limit: int = 50) -> list[dict]:
+    if not _pool:
+        return []
+    async with _pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT id, received_at, kind, body
+            FROM raw_alerts ORDER BY received_at DESC LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(r) for r in rows]
 
 
 async def all_trades(limit: int = 200) -> list[dict]:

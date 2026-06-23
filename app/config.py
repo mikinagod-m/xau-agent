@@ -5,7 +5,22 @@ import os
 class Settings:
     # Shared secret embedded in the webhook URL path. TradingView cannot send
     # custom headers, so the secret lives in the URL: /webhook/<WEBHOOK_TOKEN>
-    WEBHOOK_TOKEN: str = os.environ.get("WEBHOOK_TOKEN", "change-me")
+    # No default: an unset token must FAIL CLOSED, never accept a known default.
+    WEBHOOK_TOKEN: str = os.environ.get("WEBHOOK_TOKEN", "")
+
+    # Separate secret for read/admin endpoints (/trades, /stats, /admin/*) so a
+    # leaked dashboard link can't be replayed against the webhook. Falls back to
+    # WEBHOOK_TOKEN only for backward compatibility — set a distinct value in prod.
+    ADMIN_TOKEN: str = os.environ.get("ADMIN_TOKEN", "") or os.environ.get("WEBHOOK_TOKEN", "")
+
+    # Execution control. The agent is observation-only until this is explicitly
+    # promoted. OFF/SHADOW never place real orders; DEMO/LIVE require the MT5
+    # worker AND a clear kill switch. Default OFF = fail closed.
+    EXECUTION_MODE: str = os.environ.get("EXECUTION_MODE", "OFF").upper()
+    # Hard global kill switch. When true, no execution intent is ever emitted,
+    # regardless of EXECUTION_MODE. Anything other than an explicit "false" =
+    # killed, so a typo or unset value fails closed.
+    KILL_SWITCH: bool = os.environ.get("KILL_SWITCH", "true").lower() != "false"
 
     # Anthropic
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")

@@ -68,4 +68,6 @@ async def analyze_entry(a: ParsedAlert, stats_context: str, spot_note: str = "")
         )
         return "".join(b.text for b in msg.content if b.type == "text").strip()
     except Exception as exc:  # never let an API hiccup eat the alert
-        return f"(Claude analysis unavailable: {exc})"
+        # Fail CLOSED: emit an explicit SKIP verdict so the journal records it and
+        # any (future) execution gate refuses to trade when Claude is unavailable.
+        return f"VERDICT: SKIP - Claude analysis unavailable: {exc}"
