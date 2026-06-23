@@ -38,6 +38,12 @@ class Settings:
     # Optional: metalpriceapi spot-price sanity check on incoming alerts.
     METALPRICE_API_KEY: str = os.environ.get("METALPRICE_API_KEY", "")
 
+    # Estimated round-trip trading cost per trade, expressed in R (cost / risk).
+    # The Pine backtest models ZERO costs and bar-close fills; live MT5 pays
+    # spread + slippage. Set this (e.g. 0.05) so /stats also shows an honest
+    # after-cost expectancy. Default 0.0 = show raw, uncosted numbers.
+    COST_R_PER_TRADE: float = float(os.environ.get("COST_R_PER_TRADE", "0") or 0)
+
     # Send WATCH alerts through Claude too? Default off to save tokens -
     # WATCH alerts are forwarded raw with stats attached.
     ANALYZE_WATCH_ALERTS: bool = os.environ.get("ANALYZE_WATCH_ALERTS", "false").lower() == "true"

@@ -26,12 +26,19 @@ def bucket_stats(regime: str | None, side: str | None) -> dict | None:
 
 
 def _fmt(label: str, s: dict | None) -> str | None:
-    """One compact line per live bucket, with an explicit small-sample tag."""
+    """One compact line per live bucket: win rate, net R, profit factor and
+    expectancy (the metrics decisions are judged on), with a small-sample tag."""
     if not s or not s["trades"]:
         return None
     n, w, net = s["trades"], s["wins"], s["net_r"]
+    pf = s.get("profit_factor")
+    exp = s.get("expectancy_r", 0.0)
     tag = " (SMALL SAMPLE)" if n < 10 else ""
-    return f"{label}: {w}/{n} TP ({w / n * 100:.0f}% WR), net {net:+.2f}R{tag}"
+    pf_str = f"PF {pf}" if pf is not None else "PF n/a"
+    line = f"{label}: {w}/{n} TP ({w / n * 100:.0f}% WR), net {net:+.2f}R, {pf_str}, exp {exp:+.2f}R{tag}"
+    if "expectancy_r_after_cost" in s:
+        line += f" | after-cost exp {s['expectancy_r_after_cost']:+.2f}R"
+    return line
 
 
 async def stats_block(a) -> str:

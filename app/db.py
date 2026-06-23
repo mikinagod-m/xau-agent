@@ -156,10 +156,12 @@ async def live_stats() -> list[dict]:
 async def live_summary() -> dict:
     """Live journal aggregates across several dimensions, in realised R.
 
-    Realised R: TP HIT -> |tp-entry| / |entry-sl|, SL HIT -> -1. Returns
-    {dim: {key: {trades, wins, net_r}}} for dims: overall, side, setup,
-    grade, bucket (regime+side), verdict (Claude's own past calls), and
-    alignment (trade direction vs CTX Bias/Flow/Momentum at entry).
+    Realised R: TP HIT -> |tp-entry| / |entry-sl|, SL HIT -> -1. For each
+    {dim: {key: {...}}} bucket we report the metrics the validation rule judges
+    on — profit_factor and expectancy_r — not just win rate. Costs: the Pine
+    backtest models zero costs/bar-close fills, so an after-cost view is added
+    when COST_R_PER_TRADE is set. Dims: overall, side, setup, grade, bucket
+    (regime+side), verdict (Claude's own past calls), and alignment.
     """
     if not _pool:
         return {}
@@ -178,10 +180,16 @@ async def live_summary() -> dict:
     def add(dim: str, key: str | None, r: float, win: int) -> None:
         if not key:
             return
-        b = out.setdefault(dim, {}).setdefault(key, {"trades": 0, "wins": 0, "net_r": 0.0})
+        b = out.setdefault(dim, {}).setdefault(
+            key, {"trades": 0, "wins": 0, "net_r": 0.0, "_gross_win_r": 0.0, "_gross_loss_r": 0.0}
+        )
         b["trades"] += 1
         b["wins"] += win
         b["net_r"] = round(b["net_r"] + r, 2)
+        if r >= 0:
+            b["_gross_win_r"] += r
+        else:
+            b["_gross_loss_r"] += -r
 
     for row in rows:
         risk = abs(row["entry"] - row["sl"])
@@ -203,6 +211,23 @@ async def live_summary() -> dict:
             add("bucket", f"{row['regime']} {row['side']}", r, win)
         add("verdict", row["verdict"], r, win)
         add("alignment", alignment.classify(row["side"], ctx), r, win)
+
+    cost = settings.COST_R_PER_TRADE
+    for dim in out.values():
+        for b in dim.values():
+            n = b["trades"]
+            gw = b.pop("_gross_win_r")
+            gl = b.pop("_gross_loss_r")
+            b["win_rate_pct"] = round(b["wins"] / n * 100, 1) if n else 0.0
+            b["profit_factor"] = round(gw / gl, 2) if gl else None  # None = no losers yet
+            b["expectancy_r"] = round(b["net_r"] / n, 3) if n else 0.0
+            if cost:
+                # Each trade pays `cost` R; net falls by n*cost, gross loss rises.
+                net_ac = b["net_r"] - n * cost
+                gl_ac = gl + n * cost
+                b["net_r_after_cost"] = round(net_ac, 2)
+                b["expectancy_r_after_cost"] = round(net_ac / n, 3) if n else 0.0
+                b["profit_factor_after_cost"] = round(gw / gl_ac, 2) if gl_ac else None
     return out
 
 
